@@ -1,67 +1,83 @@
-module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+resource "aws_eks_cluster" "myapp_eks_cluster" {
+  name     = "myapp-eks-cluster"
+  role_arn = aws_iam_role.eks_cluster_role.arn
+  version  = "1.24"
 
-  cluster_name    = "myapp-eks-cluster"
-  cluster_version = "1.24"
+  vpc_config {
+    subnet_ids = aws_subnet.private_subnets[*].id
+  }
 
-  # Public endpoint access
-  cluster_endpoint_public_access  = true
-  cluster_endpoint_private_access = false
-
-  # VPC configuration
-  vpc_id     = module.myapp-vpc.vpc_id
-  subnet_ids = module.myapp-vpc.private_subnets
-
-  # Tags for resources
   tags = {
     environment = "development"
     application = "myapp"
   }
+}
 
-  eks_managed_node_groups = {
-    dev = {
-      min_size     = 1
-      max_size     = 5
-      desired_size = 2
+resource "aws_iam_role" "eks_cluster_role" {
+  name = "myapp-eks-cluster-role"
 
-      instance_types        = ["t3.medium"]
-      key_name              = "my-key-pair" # Replace with your actual key pair
-      disk_size             = 20            # Adjust as needed
-      iam_role_additional_policies = [
-        "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
-        "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-        "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-      ]
-
-      labels = {
-        environment = "development"
-        application = "myapp"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action    = "sts:AssumeRole"
+        Effect    = "Allow"
+        Principal = { Service = "eks.amazonaws.com" }
       }
+    ]
+  })
+}
 
-      taints = [
-        {
-          key    = "workload-type"
-          value  = "critical"
-          effect = "NO_SCHEDULE"
-        }
-      ]
-    }
+resource "aws_iam_role_policy_attachment" "eks_cluster_role_policy" {
+  for_each = toset([
+    "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+    "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+  ])
+
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = each.value
+}
+
+resource "aws_eks_node_group" "myapp_node_group" {
+  cluster_name    = aws_eks_cluster.myapp_eks_cluster.name
+  node_role       = aws_iam_role.eks_node_group_role.arn
+  subnet_ids      = aws_subnet.private_subnets[*].id
+  scaling_config {
+    desired_size = 2
+    max_size     = 3
+    min_size     = 1
   }
 
-  # Enable EKS add-ons for better functionality
-  eks_addons = {
-    coredns = {
-      resolve_conflicts = "OVERWRITE"
-    }
-    kube-proxy = {
-      resolve_conflicts = "OVERWRITE"
-    }
-    vpc-cni = {
-      resolve_conflicts = "OVERWRITE"
-    }
-  }
+  instance_types = ["t2.small"]
 
-  # Logging Configuration
-  cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  tags = {
+    environment = "development"
+    application = "myapp"
+  }
+}
+
+resource "aws_iam_role" "eks_node_group_role" {
+  name = "myapp-eks-node-group-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action    = "sts:AssumeRole"
+        Effect    = "Allow"
+        Principal = { Service = "ec2.amazonaws.com" }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_group_role_policy" {
+  for_each = toset([
+    "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  ])
+
+  role       = aws_iam_role.eks_node_group_role.name
+  policy_arn = each.value
 }
