@@ -1,7 +1,6 @@
-data "aws_availability_zones" "azs" {}
 module "myapp-vpc" {
   source          = "terraform-aws-modules/vpc/aws"
-  version         = "3.19.0"
+  version         = "4.0.0" # Replace with the latest stable version
   name            = "myapp-vpc"
   cidr            = var.vpc_cidr_block
   private_subnets = var.private_subnet_cidr_blocks
